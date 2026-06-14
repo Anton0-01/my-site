@@ -1,0 +1,634 @@
+import { useState, useRef } from "react";
+
+// ── База продуктов ──────────────────────────────────────────────
+const FOOD_DB = [
+  { name: "Куриная грудка",    cal: 165, protein: 31.0, fat: 3.6,  carbs: 0.0  },
+  { name: "Рис варёный",       cal: 130, protein: 2.7,  fat: 0.3,  carbs: 28.0 },
+  { name: "Яйцо куриное",      cal: 155, protein: 13.0, fat: 11.0, carbs: 1.1  },
+  { name: "Овсянка на воде",   cal: 68,  protein: 2.5,  fat: 1.5,  carbs: 12.0 },
+  { name: "Гречка варёная",    cal: 110, protein: 4.0,  fat: 1.0,  carbs: 21.0 },
+  { name: "Творог 5%",         cal: 121, protein: 17.0, fat: 5.0,  carbs: 3.0  },
+  { name: "Банан",             cal: 89,  protein: 1.1,  fat: 0.3,  carbs: 23.0 },
+  { name: "Яблоко",            cal: 52,  protein: 0.3,  fat: 0.2,  carbs: 14.0 },
+  { name: "Хлеб ржаной",       cal: 259, protein: 6.6,  fat: 3.3,  carbs: 48.0 },
+  { name: "Молоко 2.5%",       cal: 52,  protein: 2.8,  fat: 2.5,  carbs: 4.7  },
+  { name: "Лосось",            cal: 208, protein: 20.0, fat: 13.0, carbs: 0.0  },
+  { name: "Брокколи",          cal: 34,  protein: 2.8,  fat: 0.4,  carbs: 6.6  },
+  { name: "Картофель варёный", cal: 86,  protein: 2.0,  fat: 0.1,  carbs: 20.0 },
+  { name: "Макароны варёные",  cal: 158, protein: 5.5,  fat: 0.9,  carbs: 31.0 },
+  { name: "Говядина",          cal: 187, protein: 26.0, fat: 9.0,  carbs: 0.0  },
+  { name: "Греческий йогурт",  cal: 97,  protein: 9.0,  fat: 5.0,  carbs: 3.6  },
+  { name: "Авокадо",           cal: 160, protein: 2.0,  fat: 15.0, carbs: 9.0  },
+  { name: "Тунец конс.",       cal: 100, protein: 22.0, fat: 1.0,  carbs: 0.0  },
+  { name: "Морковь",           cal: 41,  protein: 0.9,  fat: 0.2,  carbs: 10.0 },
+  { name: "Миндаль",           cal: 576, protein: 21.0, fat: 50.0, carbs: 22.0 },
+];
+
+const ACTIVITY = [
+  { key: "sed",  label: "Сидячий",       hint: "мало/нет нагрузок",  k: 1.200 },
+  { key: "low",  label: "Лёгкий",        hint: "1–3 дня в неделю",   k: 1.375 },
+  { key: "mod",  label: "Умеренный",     hint: "3–5 дней в неделю",  k: 1.550 },
+  { key: "high", label: "Высокий",       hint: "6–7 дней в неделю",  k: 1.725 },
+  { key: "ext",  label: "Экстремальный", hint: "тяжёлый физ. труд",  k: 1.900 },
+];
+
+const GOALS = [
+  { key: "loss",     label: "Похудение",   emoji: "📉", delta: -500 },
+  { key: "maintain", label: "Поддержание", emoji: "⚖️",  delta: 0    },
+  { key: "gain",     label: "Набор массы", emoji: "📈", delta: +500 },
+];
+
+// ── Формула Миффлина–Сэн Жеора ──────────────────────────────────
+function calcGoalKcal(profile) {
+  const { gender, weight, height, age, actKey, goalKey } = profile;
+  const w = parseFloat(weight), h = parseFloat(height), a = parseInt(age);
+  if (!w || !h || !a) return 2000;
+  const bmr  = 10 * w + 6.25 * h - 5 * a + (gender === "m" ? 5 : -161);
+  const act  = ACTIVITY.find(x => x.key === actKey)?.k ?? 1.55;
+  const goal = GOALS.find(x => x.key === goalKey)?.delta ?? 0;
+  return Math.max(1200, Math.round(bmr * act + goal));
+}
+
+function calcMacros(kcal) {
+  return {
+    protein: Math.round(kcal * 0.30 / 4),
+    fat:     Math.round(kcal * 0.28 / 9),
+    carbs:   Math.round(kcal * 0.42 / 4),
+  };
+}
+
+// ── Цвета ────────────────────────────────────────────────────────
+const S = {
+  font:   "'DM Sans', sans-serif",
+  serif:  "'Fraunces', serif",
+  bg:     "#0d0d12",
+  card:   "#13131e",
+  border: "rgba(255,255,255,0.07)",
+  teal:   "#6ee7b7",
+  purple: "#a78bfa",
+  orange: "#fb923c",
+  blue:   "#38bdf8",
+  red:    "#f87171",
+  muted:  "rgba(255,255,255,0.35)",
+  sub:    "rgba(255,255,255,0.55)",
+};
+
+// ── Мелкие компоненты ─────────────────────────────────────────────
+function Card({ children, style }) {
+  return (
+    <div style={{
+      background: S.card, border: `1px solid ${S.border}`,
+      borderRadius: 20, padding: "18px 18px", ...style,
+    }}>{children}</div>
+  );
+}
+
+function Btn({ children, onClick, color = S.teal, textColor = "#0d1a14", style }) {
+  return (
+    <button onClick={onClick} style={{
+      width: "100%", padding: "12px", borderRadius: 12, border: "none",
+      background: color, color: textColor, fontWeight: 700,
+      fontSize: 14, fontFamily: S.font, cursor: "pointer",
+      transition: "filter .15s", ...style,
+    }}
+      onMouseEnter={e => e.currentTarget.style.filter = "brightness(1.1)"}
+      onMouseLeave={e => e.currentTarget.style.filter = "brightness(1)"}
+    >{children}</button>
+  );
+}
+
+function Ring({ value, max, over }) {
+  const size = 116, stroke = 10;
+  const r    = (size - stroke) / 2;
+  const circ = 2 * Math.PI * r;
+  const dash = circ * Math.min(value / Math.max(max, 1), 1);
+  return (
+    <svg width={size} height={size} style={{ transform: "rotate(-90deg)", flexShrink: 0 }}>
+      <defs>
+        <linearGradient id="rg" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#a8edea" />
+          <stop offset="100%" stopColor="#6ee7b7" />
+        </linearGradient>
+      </defs>
+      <circle cx={size/2} cy={size/2} r={r} fill="none"
+        stroke="rgba(255,255,255,0.07)" strokeWidth={stroke} />
+      <circle cx={size/2} cy={size/2} r={r} fill="none"
+        stroke={over ? S.red : "url(#rg)"} strokeWidth={stroke}
+        strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"
+        style={{ transition: "stroke-dasharray .55s cubic-bezier(.4,0,.2,1)" }} />
+    </svg>
+  );
+}
+
+function MacroBar({ label, value, max, color }) {
+  const pct = Math.min(value / Math.max(max, 1) * 100, 100);
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between",
+        fontSize: 11, color: S.sub, marginBottom: 3 }}>
+        <span>{label}</span>
+        <span style={{ color: "#fff" }}>{Math.round(value)}г
+          <span style={{ color: S.muted }}> / {max}г</span></span>
+      </div>
+      <div style={{ height: 5, background: "rgba(255,255,255,0.07)", borderRadius: 99 }}>
+        <div style={{ height: "100%", width: `${pct}%`, background: color,
+          borderRadius: 99, transition: "width .5s cubic-bezier(.4,0,.2,1)" }} />
+      </div>
+    </div>
+  );
+}
+
+// ── Экран профиля ─────────────────────────────────────────────────
+function ProfileScreen({ profile, onSave }) {
+  const [p, setP] = useState(profile || {
+    gender: "m", age: "", weight: "", height: "",
+    actKey: "mod", goalKey: "maintain",
+  });
+  const set = k => v => setP(prev => ({ ...prev, [k]: v }));
+
+  const kcal   = calcGoalKcal(p);
+  const macros = calcMacros(kcal);
+  const ready  = p.age && p.weight && p.height;
+
+  return (
+    <div style={{ minHeight: "100vh", background: S.bg, fontFamily: S.font,
+      color: "#fff", padding: "28px 16px 80px", maxWidth: 420, margin: "0 auto" }}>
+      <style>{CSS}</style>
+
+      <div style={{ fontSize: 10, letterSpacing: 3, textTransform: "uppercase",
+        color: S.muted, marginBottom: 6 }}>Настройка профиля</div>
+      <h2 style={{ fontFamily: S.serif, fontWeight: 300, fontSize: 30,
+        marginBottom: 22, letterSpacing: -0.5 }}>Ваши параметры</h2>
+
+      {/* Пол */}
+      <Card style={{ marginBottom: 10 }}>
+        <div style={{ fontSize: 11, color: S.muted, marginBottom: 8 }}>Пол</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          {[["m","Мужской"],["f","Женский"]].map(([k, lbl]) => (
+            <button key={k} onClick={() => set("gender")(k)} style={{
+              flex: 1, padding: "9px", borderRadius: 10, border: "none",
+              cursor: "pointer", fontFamily: S.font, fontSize: 13,
+              background: p.gender === k ? "rgba(110,231,183,0.12)" : "rgba(255,255,255,0.04)",
+              color: p.gender === k ? S.teal : S.sub,
+              fontWeight: p.gender === k ? 700 : 400,
+              outline: p.gender === k ? `1px solid ${S.teal}` : `1px solid transparent`,
+              transition: "all .2s",
+            }}>{lbl}</button>
+          ))}
+        </div>
+      </Card>
+
+      {/* Параметры тела */}
+      <Card style={{ marginBottom: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+          {[["age","Возраст","лет",10,120],["weight","Вес","кг",30,300],["height","Рост","см",100,250]].map(([k,lbl,unit,mn,mx]) => (
+            <div key={k}>
+              <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>{lbl}, {unit}</div>
+              <input type="number" value={p[k]} min={mn} max={mx}
+                onChange={e => set(k)(e.target.value)}
+                style={{
+                  width: "100%", padding: "9px 0", boxSizing: "border-box",
+                  background: "rgba(255,255,255,0.05)", border: `1px solid ${S.border}`,
+                  borderRadius: 10, color: "#fff", fontSize: 15,
+                  fontFamily: S.font, outline: "none", textAlign: "center",
+                }} />
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {/* Активность */}
+      <Card style={{ marginBottom: 10 }}>
+        <div style={{ fontSize: 11, color: S.muted, marginBottom: 8 }}>Уровень активности</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+          {ACTIVITY.map(a => (
+            <button key={a.key} onClick={() => set("actKey")(a.key)} style={{
+              padding: "8px 12px", borderRadius: 10, border: "none", cursor: "pointer",
+              display: "flex", justifyContent: "space-between", alignItems: "center",
+              fontFamily: S.font, textAlign: "left",
+              background: p.actKey === a.key ? "rgba(110,231,183,0.08)" : "rgba(255,255,255,0.03)",
+              outline: p.actKey === a.key ? `1px solid ${S.teal}` : `1px solid transparent`,
+              transition: "all .2s",
+            }}>
+              <span style={{ fontSize: 13, color: p.actKey === a.key ? S.teal : "#fff",
+                fontWeight: p.actKey === a.key ? 600 : 400 }}>{a.label}</span>
+              <span style={{ fontSize: 11, color: S.muted }}>{a.hint}</span>
+            </button>
+          ))}
+        </div>
+      </Card>
+
+      {/* Цель */}
+      <Card style={{ marginBottom: 18 }}>
+        <div style={{ fontSize: 11, color: S.muted, marginBottom: 8 }}>Цель</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          {GOALS.map(g => (
+            <button key={g.key} onClick={() => set("goalKey")(g.key)} style={{
+              flex: 1, padding: "10px 6px", borderRadius: 10, border: "none",
+              cursor: "pointer", textAlign: "center", fontFamily: S.font,
+              background: p.goalKey === g.key ? "rgba(167,139,250,0.1)" : "rgba(255,255,255,0.03)",
+              outline: p.goalKey === g.key ? `1px solid ${S.purple}` : `1px solid transparent`,
+              transition: "all .2s",
+            }}>
+              <div style={{ fontSize: 12, fontWeight: p.goalKey === g.key ? 700 : 400,
+                color: p.goalKey === g.key ? S.purple : S.sub, padding: "4px 0" }}>{g.label}</div>
+            </button>
+          ))}
+        </div>
+      </Card>
+
+      {/* Результат */}
+      {ready && (
+        <Card style={{ marginBottom: 18, border: `1px solid rgba(110,231,183,0.2)` }}>
+          <div style={{ fontSize: 10, color: S.muted, letterSpacing: 2,
+            textTransform: "uppercase", marginBottom: 6 }}>Ваша норма</div>
+          <div style={{ fontSize: 36, fontWeight: 700, color: S.teal,
+            fontFamily: S.serif, letterSpacing: -1, lineHeight: 1, marginBottom: 6 }}>
+            {kcal} <span style={{ fontSize: 16, fontWeight: 400, color: S.sub }}>ккал/день</span>
+          </div>
+          <div style={{ fontSize: 12, color: S.muted }}>
+            Белки <span style={{ color: "#fff" }}>{macros.protein}г</span>
+            &nbsp;·&nbsp;Жиры <span style={{ color: "#fff" }}>{macros.fat}г</span>
+            &nbsp;·&nbsp;Углеводы <span style={{ color: "#fff" }}>{macros.carbs}г</span>
+          </div>
+        </Card>
+      )}
+
+      <Btn onClick={() => ready && onSave(p)}
+        color={ready ? S.teal : "rgba(255,255,255,0.08)"}
+        textColor={ready ? "#0d1a14" : S.muted}>
+        {ready ? "Сохранить и начать →" : "Заполните все поля"}
+      </Btn>
+    </div>
+  );
+}
+
+// ── Главный экран ─────────────────────────────────────────────────
+export default function App() {
+  const [profile, setProfile]       = useState(null);
+  const [showProfile, setShowProfile] = useState(false);
+  const [entries, setEntries]       = useState([]);
+  const [tab, setTab]               = useState("log");
+  const [search, setSearch]         = useState("");
+  const [selected, setSelected]     = useState(null);
+  const [gram, setGram]             = useState(100);
+  const [dropOpen, setDropOpen]     = useState(false);
+  const [customName, setCustomName] = useState("");
+  const [customCal, setCustomCal]   = useState("");
+  const [customProtein, setCustomProtein] = useState("");
+  const [customFat, setCustomFat]   = useState("");
+  const [customCarbs, setCustomCarbs] = useState("");
+  const [customFoods, setCustomFoods] = useState([]);
+  const [shake, setShake]           = useState(false);
+  const inputRef = useRef();
+
+  const goalKcal   = profile ? calcGoalKcal(profile) : 2000;
+  const goalMacros = calcMacros(goalKcal);
+  const allFoods   = [...FOOD_DB, ...customFoods];
+  const filtered   = allFoods.filter(f =>
+    f.name.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const totals = entries.reduce(
+    (a, e) => ({ cal: a.cal+e.cal, protein: a.protein+e.protein,
+                 fat: a.fat+e.fat, carbs: a.carbs+e.carbs }),
+    { cal: 0, protein: 0, fat: 0, carbs: 0 }
+  );
+  const over      = totals.cal > goalKcal;
+  const remaining = goalKcal - Math.round(totals.cal);
+
+  const triggerShake = () => { setShake(true); setTimeout(() => setShake(false), 400); };
+
+  const addEntry = () => {
+    if (!selected) { triggerShake(); return; }
+    const r = gram / 100;
+    setEntries(p => [...p, {
+      id: Date.now(), name: selected.name, gram,
+      cal:     Math.round(selected.cal * r),
+      protein: Math.round(selected.protein * r * 10) / 10,
+      fat:     Math.round(selected.fat * r * 10) / 10,
+      carbs:   Math.round(selected.carbs * r * 10) / 10,
+      time:    new Date().toLocaleTimeString("ru-RU", { hour:"2-digit", minute:"2-digit" }),
+    }]);
+    setSearch(""); setSelected(null); setGram(100); setDropOpen(false);
+  };
+
+  const addCustomEntry = () => {
+    if (!customName || !customCal) { triggerShake(); return; }
+    setEntries(p => [...p, {
+      id: Date.now(), name: customName, gram: 100,
+      cal: Number(customCal), protein: Number(customProtein)||0,
+      fat: Number(customFat)||0, carbs: Number(customCarbs)||0,
+      time: new Date().toLocaleTimeString("ru-RU", { hour:"2-digit", minute:"2-digit" }),
+    }]);
+    setCustomName(""); setCustomCal(""); setCustomProtein(""); setCustomFat(""); setCustomCarbs("");
+  };
+
+  const saveToBase = () => {
+    if (!customName || !customCal) { triggerShake(); return; }
+    setCustomFoods(p => [...p, {
+      name: customName, cal: Number(customCal),
+      protein: Number(customProtein)||0, fat: Number(customFat)||0, carbs: Number(customCarbs)||0,
+    }]);
+    setCustomName(""); setCustomCal(""); setCustomProtein(""); setCustomFat(""); setCustomCarbs("");
+  };
+
+  if (!profile || showProfile) {
+    return <ProfileScreen profile={profile}
+      onSave={p => { setProfile(p); setShowProfile(false); }} />;
+  }
+
+  const goalInfo = GOALS.find(g => g.key === profile.goalKey);
+
+  return (
+    <div style={{ minHeight: "100vh", background: S.bg, fontFamily: S.font,
+      color: "#fff", padding: "0 0 90px" }}>
+      <style>{CSS}</style>
+
+      {/* ── Шапка ────────────────────────────────────────────────── */}
+      <div style={{ maxWidth: 420, margin: "0 auto", padding: "26px 16px 0" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div>
+            <div style={{ fontSize: 10, letterSpacing: 3, textTransform: "uppercase",
+              color: S.muted, marginBottom: 4 }}>Дневник питания</div>
+            <h1 style={{ fontFamily: S.serif, fontWeight: 300, fontSize: 28,
+              letterSpacing: -0.5, lineHeight: 1.15, margin: 0 }}>
+              {new Date().toLocaleDateString("ru-RU",
+                { weekday:"long", day:"numeric", month:"long" })}
+            </h1>
+          </div>
+          <button onClick={() => setShowProfile(true)} style={{
+            background: "rgba(255,255,255,0.05)", border: `1px solid ${S.border}`,
+            borderRadius: 10, padding: "7px 11px", color: S.sub,
+            fontSize: 12, cursor: "pointer", fontFamily: S.font, marginTop: 2,
+            transition: "background .2s",
+          }}
+            onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.09)"}
+            onMouseLeave={e => e.currentTarget.style.background = "rgba(255,255,255,0.05)"}
+          >⚙ Профиль</button>
+        </div>
+      </div>
+
+      {/* ── Карточка-дашборд ──────────────────────────────────────── */}
+      <div style={{ maxWidth: 420, margin: "16px auto 0", padding: "0 16px" }}>
+        <Card style={{ display: "flex", alignItems: "center", gap: 18, padding: "20px 18px" }}>
+          <div style={{ position: "relative", flexShrink: 0 }}>
+            <Ring value={totals.cal} max={goalKcal} over={over} />
+            <div style={{ position: "absolute", inset: 0, display: "flex",
+              flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+              <div style={{ fontSize: 19, fontWeight: 700, lineHeight: 1 }}>
+                {Math.round(totals.cal)}
+              </div>
+              <div style={{ fontSize: 9, color: S.muted, marginTop: 2 }}>ккал</div>
+            </div>
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 12, marginBottom: 9 }}>
+              {remaining >= 0
+                ? <><span style={{ color: S.teal, fontWeight: 700 }}>{remaining} ккал</span>
+                    <span style={{ color: S.muted }}> осталось</span></>
+                : <span style={{ color: S.red, fontWeight: 700 }}>
+                    +{Math.abs(remaining)} ккал превышение</span>
+              }
+            </div>
+            <MacroBar label="Белки"    value={totals.protein} max={goalMacros.protein} color={S.purple} />
+            <MacroBar label="Жиры"     value={totals.fat}     max={goalMacros.fat}     color={S.orange} />
+            <MacroBar label="Углеводы" value={totals.carbs}   max={goalMacros.carbs}   color={S.blue}   />
+            <div style={{ marginTop: 7, fontSize: 10, color: S.muted }}>
+              {goalInfo?.emoji} {goalInfo?.label}
+              &nbsp;·&nbsp;норма <span style={{ color: S.teal }}>{goalKcal} ккал</span>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      {/* ── Навигация ─────────────────────────────────────────────── */}
+      <div style={{ maxWidth: 420, margin: "12px auto 0", padding: "0 16px" }}>
+        <div style={{ display: "flex", gap: 5, background: "rgba(255,255,255,0.04)",
+          borderRadius: 14, padding: 4 }}>
+          {[["log","Журнал"],["add","Добавить"],["custom","Своё"]].map(([key, lbl]) => (
+            <button key={key} onClick={() => setTab(key)} style={{
+              flex: 1, padding: "8px 0", borderRadius: 10, border: "none",
+              cursor: "pointer", fontFamily: S.font, fontSize: 13, fontWeight: 500,
+              background: tab === key ? "rgba(255,255,255,0.1)" : "transparent",
+              color: tab === key ? "#fff" : S.muted,
+              transition: "all .2s",
+            }}>{lbl}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Вкладка: Добавить ─────────────────────────────────────── */}
+      {tab === "add" && (
+        <div style={{ maxWidth: 420, margin: "12px auto 0", padding: "0 16px" }}
+          className={shake ? "shake" : ""}>
+          <Card>
+            <div style={{ position: "relative", marginBottom: 10 }}>
+              <input ref={inputRef} value={search}
+                onChange={e => { setSearch(e.target.value); setDropOpen(true); setSelected(null); }}
+                onFocus={() => setDropOpen(true)}
+                placeholder="Поиск продукта..."
+                style={{
+                  width: "100%", padding: "11px 36px 11px 14px", boxSizing: "border-box",
+                  background: "rgba(255,255,255,0.06)", border: `1px solid ${S.border}`,
+                  borderRadius: 11, color: "#fff", fontSize: 14,
+                  fontFamily: S.font, outline: "none",
+                }} />
+              {selected && (
+                <span style={{ position: "absolute", right: 12, top: "50%",
+                  transform: "translateY(-50%)", color: S.teal,
+                  fontSize: 12, fontWeight: 700 }}>✓</span>
+              )}
+            </div>
+
+            {dropOpen && search && !selected && filtered.length > 0 && (
+              <div style={{ background: "#1b1b28", border: `1px solid ${S.border}`,
+                borderRadius: 12, overflow: "hidden", marginBottom: 10,
+                maxHeight: 210, overflowY: "auto" }}>
+                {filtered.slice(0, 9).map(f => (
+                  <div key={f.name} className="drop-item"
+                    onClick={() => { setSelected(f); setSearch(f.name); setDropOpen(false); }}
+                    style={{ padding: "9px 14px", cursor: "pointer",
+                      display: "flex", justifyContent: "space-between", alignItems: "center",
+                      borderBottom: `1px solid ${S.border}` }}>
+                    <div>
+                      <div style={{ fontSize: 13 }}>{f.name}</div>
+                      <div style={{ fontSize: 10, color: S.muted }}>
+                        Б:{f.protein} Ж:{f.fat} У:{f.carbs}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: S.teal }}>
+                      {f.cal} ккал
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: 8, alignItems: "flex-end", marginBottom: 12 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 11, color: S.muted, marginBottom: 4 }}>Количество (г)</div>
+                <input type="number" min="1" max="3000" value={gram}
+                  onChange={e => setGram(Number(e.target.value))}
+                  style={{
+                    width: "100%", padding: "10px 14px", boxSizing: "border-box",
+                    background: "rgba(255,255,255,0.06)", border: `1px solid ${S.border}`,
+                    borderRadius: 10, color: "#fff", fontSize: 15,
+                    fontFamily: S.font, outline: "none",
+                  }} />
+              </div>
+              {selected && (
+                <div style={{ padding: "10px 14px",
+                  background: "rgba(110,231,183,0.08)",
+                  border: `1px solid rgba(110,231,183,0.2)`,
+                  borderRadius: 10, textAlign: "center" }}>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: S.teal }}>
+                    {Math.round(selected.cal * gram / 100)}
+                  </div>
+                  <div style={{ fontSize: 10, color: S.muted }}>ккал</div>
+                </div>
+              )}
+            </div>
+
+            <Btn onClick={addEntry}>Добавить в дневник</Btn>
+          </Card>
+        </div>
+      )}
+
+      {/* ── Вкладка: Своё ─────────────────────────────────────────── */}
+      {tab === "custom" && (
+        <div style={{ maxWidth: 420, margin: "12px auto 0", padding: "0 16px" }}
+          className={shake ? "shake" : ""}>
+          <Card>
+            <div style={{ fontSize: 11, color: S.muted, marginBottom: 12 }}>
+              Данные на 100 г продукта
+            </div>
+            {[
+              ["Название *",       customName,    setCustomName,    "text"],
+              ["Калории (ккал) *", customCal,     setCustomCal,     "number"],
+              ["Белки (г)",        customProtein, setCustomProtein, "number"],
+              ["Жиры (г)",         customFat,     setCustomFat,     "number"],
+              ["Углеводы (г)",     customCarbs,   setCustomCarbs,   "number"],
+            ].map(([lbl, val, setter, type]) => (
+              <div key={lbl} style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 11, color: S.muted, marginBottom: 3 }}>{lbl}</div>
+                <input type={type} value={val}
+                  onChange={e => setter(e.target.value)}
+                  style={{
+                    width: "100%", padding: "9px 12px", boxSizing: "border-box",
+                    background: "rgba(255,255,255,0.05)", border: `1px solid ${S.border}`,
+                    borderRadius: 10, color: "#fff", fontSize: 14,
+                    fontFamily: S.font, outline: "none",
+                  }} />
+              </div>
+            ))}
+            <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+              <Btn onClick={addCustomEntry}
+                color={`linear-gradient(135deg,${S.teal},#a8edea)`}
+                style={{ flex: 1 }}>В дневник</Btn>
+              <Btn onClick={saveToBase}
+                color={S.purple} textColor="#fff" style={{ flex: 1 }}>В базу</Btn>
+            </div>
+          </Card>
+
+          {customFoods.length > 0 && (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ fontSize: 10, color: S.muted, marginBottom: 8,
+                letterSpacing: 2, textTransform: "uppercase" }}>Сохранённые</div>
+              {customFoods.map((f, i) => (
+                <div key={i} style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  background: S.card, border: `1px solid ${S.border}`,
+                  borderRadius: 12, padding: "10px 14px", marginBottom: 6,
+                }}>
+                  <div>
+                    <div style={{ fontSize: 13 }}>{f.name}</div>
+                    <div style={{ fontSize: 11, color: S.muted }}>
+                      {f.cal} ккал · Б:{f.protein} Ж:{f.fat} У:{f.carbs}
+                    </div>
+                  </div>
+                  <button onClick={() => setCustomFoods(p => p.filter((_,j) => j!==i))}
+                    className="del-btn"
+                    style={{ background:"none", border:"none", color:S.muted,
+                      fontSize:18, cursor:"pointer", padding:"0 4px" }}>×</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Вкладка: Журнал ───────────────────────────────────────── */}
+      {tab === "log" && (
+        <div style={{ maxWidth: 420, margin: "12px auto 0", padding: "0 16px" }}>
+          {entries.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "52px 0", color: S.muted }}>
+              <div style={{ fontSize: 14 }}>Журнал пуст — добавьте первый приём пищи</div>
+            </div>
+          ) : (
+            <>
+              {[...entries].reverse().map(e => (
+                <div key={e.id} className="entry-row" style={{
+                  display: "flex", alignItems: "center", gap: 10,
+                  background: S.card, border: `1px solid ${S.border}`,
+                  borderRadius: 14, padding: "12px 14px", marginBottom: 7,
+                }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600,
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {e.name}
+                    </div>
+                    <div style={{ fontSize: 11, color: S.muted, marginTop: 2 }}>
+                      {e.gram}г · {e.time} · Б:{e.protein} Ж:{e.fat} У:{e.carbs}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: S.teal }}>{e.cal}</div>
+                    <div style={{ fontSize: 10, color: S.muted }}>ккал</div>
+                  </div>
+                  <button className="del-btn"
+                    onClick={() => setEntries(p => p.filter(x => x.id !== e.id))}
+                    style={{ background:"none", border:"none", color:S.muted,
+                      fontSize:18, cursor:"pointer", padding:"0 2px", flexShrink:0 }}>×</button>
+                </div>
+              ))}
+              <button onClick={() => setEntries([])} style={{
+                display: "block", margin: "10px auto 0",
+                background: "none",
+                border: "1px solid rgba(248,113,113,0.2)",
+                borderRadius: 8, color: "rgba(248,113,113,0.5)",
+                fontSize: 12, cursor: "pointer",
+                padding: "6px 18px", fontFamily: S.font,
+              }}>Очистить дневник</button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Глобальные стили ─────────────────────────────────────────────
+const CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,600&display=swap');
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0d0d12; }
+  ::-webkit-scrollbar { display: none; }
+  input, button { outline: none; }
+  .entry-row { animation: slideIn .28s cubic-bezier(.4,0,.2,1); }
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes shakeAnim {
+    0%,100% { transform: translateX(0); }
+    20%     { transform: translateX(-6px); }
+    40%     { transform: translateX(6px); }
+    60%     { transform: translateX(-4px); }
+    80%     { transform: translateX(4px); }
+  }
+  .shake { animation: shakeAnim .4s ease; }
+  .drop-item:hover { background: rgba(255,255,255,0.06) !important; }
+  .del-btn:hover { color: #f87171 !important; }
+  input[type=number]::-webkit-inner-spin-button { opacity: .4; }
+`;
